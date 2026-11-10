@@ -1,57 +1,104 @@
-# Vision-Guided Robotic Bin Picking for Recycling
+# Vision-Guided Robotic Bin Picking
 
-**FEMTO-ST research internship · 2026**
+**Alfred Rojo · FEMTO-ST research internship · 2026**
 
-## The problem
+A robot can recognise an object in an image and still miss it with the gripper. At FEMTO-ST, I worked on closing that gap: detecting an object from a wrist-mounted camera, locating it in the robot's workspace, and turning that measurement into a grasp.
 
-To sort recyclables, a robot needs to do more than recognise an item. It has to work out where the item is, which way it is lying, and how to reach it with a gripper. The question I worked on at FEMTO-ST was: **Could a robot get enough information from a single colour camera to do that, without relying on a dedicated depth sensor?**
+The long-term application was sorting recyclables. The research question was more specific: **could depth inferred from a single colour image eventually replace the depth sensor during a pick?** We built a fixed-object prototype on a six-axis arm and used a whiteboard marker as a controlled target. The physical trials used measured RealSense depth; a separate experiment tested how well an RGB-only model could estimate those distances.
 
-We built a prototype on a real robot and tested it with an isolated whiteboard marker. I worked on the vision model, camera calibration, depth analysis, and Python software that connects the camera to the robot's picking motion.
+[Prototype](#the-prototype) · [Calibration](#camera-to-robot-calibration) · [Object detection](#finding-the-object) · [Depth experiment](#depth-from-one-image) · [Grasp planning](#from-detection-to-motion) · [Results and next steps](#results-and-next-steps)
 
-![Niryo Ned2 with a wrist-mounted RealSense camera and a calibration checkerboard](robot-setup.jpeg)
+## The prototype
 
-*The test setup: a Niryo Ned2 arm, a camera beside the gripper, and a checkerboard for calibration.*
+<p align="center"><img src="media/marker-grasp-trial.webp" width="568" alt="Physical Niryo Ned2 trial: the arm approaches a red-capped marker, grips it and lifts it off the table"><br><em>From a fixed-object lab trial: the arm approaches, closes around the marker and lifts it. This silent excerpt shows one trial, not a measured success rate.</em></p>
 
-## Building the prototype
+The **Niryo Ned2** carries an **Intel RealSense D435** beside its parallel gripper. Mounting the camera on the wrist lets the arm look around for a target and then take a closer measurement. A **Jetson Orin** runs camera acquisition and GPU inference, while the Python controller turns the vision output into robot commands. Bringing up CUDA on the Jetson made it practical to test the vision and motion together on the bench.
 
-The camera moved with the robot's wrist, so it could look around the workspace and then get closer to an object. A custom 3D-printed bracket held the camera in place, and a Jetson Orin ran the vision software. The RealSense camera provided both colour images and measured depth. Its depth readings gave us a reference for testing what an AI model could infer from the colour image alone.
+![Niryo Ned2 with a wrist-mounted RealSense over the calibration target](robot-setup.jpeg)
+*The lab setup with the camera beside the gripper and the checkerboard on the work surface.*
 
-I helped calibrate the camera by observing a fixed checkerboard from **12 robot poses** and comparing five methods for locating the camera relative to the wrist. This was the link between vision and motion: a detection in an image could be turned into a target the robot could move towards. We checked the result by commanding the arm towards a point measured in the camera view. It reached the expected area, with a residual offset to account for before grasping.
+| Camera mount in CAD | First bracket installed |
+| :---: | :---: |
+| <img src="media/camera-mount-cad.png" width="350" alt="Fusion 360 model of the wrist-mounted camera bracket"> | <img src="media/wrist-camera.jpeg" width="350" alt="RealSense camera held next to the gripper by a printed bracket"> |
+| The custom PLA bracket was designed in Fusion 360 and 3D-printed. | The first bracket held the camera near the jaws. A later offset aligned the RGB lens more closely with the gripper centreline. |
 
-## Testing depth from a single image
+## Camera-to-robot calibration
 
-I compared two views of the same scene: the distance estimated from one colour image by **MoGe2** and the distance measured by the RealSense. Across **12 acquisition runs**, the project collected **more than 4.5 million matched pixel measurements**, stored in SQLite so the same data could be analysed and reused.
+When the arm moves, the same object appears at a different pixel and from a different angle. The robot therefore needs to know exactly how the camera sits relative to its wrist. We photographed a fixed, printed checkerboard from different arm positions, pairing each image with the corresponding robot pose. OpenCV found the corners and estimated where the board was relative to the camera. Combining those observations with the robot's joint positions gave us the camera-to-wrist transform.
 
-The model captured the overall shape of the scene, but individual estimates could be noisy around edges and reflective surfaces. I investigated how the error changed with distance and tested a correction that adjusted the model's predictions differently at different ranges. The correction was based on the model's own distance estimate, so a future version could apply it without needing the depth sensor at that step.
+| Fabricated target | Corner extraction from a wrist-camera image |
+| :---: | :---: |
+| <img src="media/calibration-board.jpeg" width="280" alt="3D-printed black-and-white calibration checkerboard"> | <img src="media/checkerboard-corners.png" width="360" alt="Detected checkerboard corners overlaid in coloured rows"> |
+| Known square spacing gives the images a metric reference. | The detected corners let us estimate the target pose from each view. |
 
-| Distance error against the RealSense reference | Before correction | After correction |
+We compared five hand–eye calibration methods on **12 retained pose pairs**. Tsai was selected, with a mean 3D consistency error of **24.26 mm** on those poses. Park and Horaud gave similar results. This check measured how consistently the geometry located a reference point; it did not measure arm repeatability or grasp accuracy. The captured poses covered much more distance along one horizontal axis than the other, so a more varied calibration set is a clear next improvement.
+
+## Finding the object
+
+A bounding box tells the robot roughly where to look. To decide how to turn the jaws, it also needs the shape and direction of the object. We labelled marker outlines in Roboflow and fine-tuned a **YOLOv8 segmentation** model on the Jetson. The outline gave us a centre and a dominant axis for grasp alignment. When the first dataset export produced empty validation labels, we corrected the export and checked the labels before evaluating the model.
+
+![YOLOv8 training and validation curves across 50 epochs](media/marker-training-curves.png)
+*Training and validation on the controlled marker class. The report records approximately 0.95 mask mAP at a 50% overlap threshold. This measures how well the model outlines markers in validation images, not how often the robot picks them up.*
+
+## Depth from one image
+
+The second part of the project asked whether the camera could provide enough geometry without its depth stream. We ran **MoGe2** on RGB images, aligned the RealSense depth to those same images, and compared the two values at matching pixels. Across **12 acquisition runs**, the SQLite database held **4,559,119 paired pixel measurements**. Keeping acquisition settings and sample records separately let us trace errors back to a frame or robot pose and rerun the analysis without repeating the capture.
+
+![Colour-coded RealSense depth aligned to the RGB image](media/realsense-depth-map.png)
+*An aligned RealSense depth map used to check the acquisition pipeline. Black areas show missing depth. RealSense was the comparison reference, not an error-free ground truth.*
+
+MoGe2 captured the broad shape of the scene, but individual predictions could be noisy. A single correction across all distances was not dependable, so we looked more closely at the arm's working range and grouped predictions by distance. We used the **median signed error** in each range to estimate a correction, then tested how much smoothing and how large a correction to allow. Grouping by the model's **predicted** depth meant the resulting correction could be applied without consulting RealSense at runtime.
+
+![Exploratory close-range plot comparing raw and corrected MoGe2 with RealSense](media/depth-trends.png)
+*Exploratory plot below 1 m. The median lines follow the reference more closely than the means in some ranges, where large outliers pull the averages away. This plot illustrates why we used medians; the table below reports the final selected correction configuration.*
+
+| Depth error against RealSense | Raw MoGe2 | With correction |
 | --- | ---: | ---: |
-| Median absolute error | 6.85 cm | 5.95 cm |
-| Mean absolute error | 15.36 cm | 14.84 cm |
-| Error below which 90% of samples fell | 28.87 cm | 28.54 cm |
+| Median absolute error | 6.85 cm | **5.95 cm** |
+| Mean absolute error | 15.36 cm | **14.84 cm** |
+| 90th-percentile absolute error | 28.87 cm | **28.54 cm** |
 
-The correction improved the typical estimate, but the larger errors changed very little. That distinction mattered: an average improvement is useful for research, but a gripper needs dependable distances at the object. **We used measured RealSense depth for the physical picking tests and kept single-image depth as a separate experiment.**
+The typical error improved by **0.90 cm**, but the larger errors changed very little. That was the result that mattered for picking: a useful improvement in the benchmark was not enough to trust the distance at the jaws. The physical trials therefore kept RealSense as the live depth input.
 
-## Turning a detection into a pick
+## From detection to motion
 
-1. **Find the marker.** I fine-tuned a YOLOv8 vision model to outline the marker rather than just put a box around it. The outline gave the software a centre point and a direction for the gripper. The model scored about **0.95 mAP@50 for outlines** on the marker validation set. That measures detection performance, not grasp success.
-2. **Locate it in the robot's workspace.** The software combined the detection, measured depth, and camera calibration to estimate a position the arm could reach.
-3. **Line up the gripper and approach.** I worked on the Python controller that centres the wrist over the target before lowering it. An earlier approach tilted the wrist while centring and could lose sight of the object up close. Separating sideways movement from descent kept the gripper aligned. The test workflow also included a close-range confirmation before the grasp.
+```mermaid
+flowchart TD
+    A["Wrist camera: colour image"] --> B["YOLOv8: object centre and direction"]
+    A --> C["MoGe2: depth from colour alone"]
+    D["RealSense: measured depth"] --> E["Local depth near the object"]
+    D --> F["Offline comparison and correction"]
+    C --> F
+    B --> G["Locate target in robot coordinates"]
+    E --> G
+    H["Wrist calibration and current arm pose"] --> G
+    G --> I["Centre, align and approach"]
+    I --> J["Operator confirms before grasp"]
+```
 
-![Live camera view showing the detected marker and its estimated position](fixed-object-detection.png)
+The controller combined the target pixel with the median of nearby valid depth readings. The camera calibration and current arm pose then expressed that target relative to the robot base. This meant each sideways correction was a **physical distance**, rather than a joint movement guessed from the pixel offset.
 
-*Live view: the software finds the object and displays its estimated position and depth.*
+1. **Find and centre.** Sweep the base until the marker is detected, then move the wrist over it while keeping the gripper level. An earlier approach tilted the wrist to centre the image and could lose the object up close. Separating centring from descent kept the target in view.
+2. **Align and approach.** Use the object's long axis to turn the jaws, taking the shorter equivalent rotation. Check whether the object fits the gripper and select the closest reachable top-down orientation before lowering the arm.
+3. **Confirm, grasp and lift.** Stop for operator confirmation near the target before closing the jaws. The controller then lifts and commands the drop motion. The excerpt above shows the approach, grasp and lift portion of a physical trial.
 
-![3D preview showing the robot pose, approach point and planned grasp target](grasp-preview.png)
+| Live vision view | 3D planning preview |
+| :---: | :---: |
+| <img src="fixed-object-detection.png" width="420" alt="Live interface showing a detected marker, measured depth and estimated target"> | <img src="grasp-preview.png" width="420" alt="3D preview marking the pre-grasp and final grasp positions"> |
+| The overlay exposes the detection, measured depth and estimated grasp target. | The preview shows the planned approach and target before motion. These views are separate captures, not two frames from the same trial. |
 
-*Planning view: the approach point and grasp target can be inspected before moving the arm.*
+## Getting the arm back on the bench
 
-## Getting the robot back on the bench
+Partway through testing, the controller stopped receiving telemetry from Joint 5 while the other joints still reported normally. Swapping connections helped isolate the fault to the wrist actuator. The replacement had different factory communication settings, so we configured it separately with a U2D2 adapter and Dynamixel Wizard, reinstalled it, checked that the controller could see it, and recalibrated its zero position before resuming trials.
 
-During testing, the robot stopped reporting data from a wrist joint. We isolated the problem to the actuator, replaced it, and configured the replacement so the controller could recognise it. We then recalibrated the joint before resuming the tests. It was a practical part of the project: an improvement to the vision software only mattered if the arm was in a condition to carry out the motion.
+<p align="center"><img src="media/joint-diagnostics.jpeg" width="600" alt="Niryo Studio diagnostics with missing telemetry for the wrist joint"><br><em>The diagnostic panel showed missing readings for Joint 5 while neighbouring joints continued to report.</em></p>
 
-## What the project demonstrated
+## Results and next steps
 
-The fixed-marker tests brought the vision model, camera calibration, depth measurements, and robot motion together on physical hardware. A whiteboard marker gave us a repeatable target so we could see which part of the workflow needed improvement. It was not the intended recycling target.
+The project brought together a custom camera mount, camera-to-robot calibration, marker segmentation, and measured-depth motion control on a physical arm. The controlled trial shows the arm picking up an isolated marker. The depth experiment explains why the prototype still used a sensor for that move: correcting the model helped typical estimates, but occasional larger errors remained.
 
-The next step towards a sorter would be to test bottles, cans, and cartons in clutter, record how often the robot successfully picks and places them, and check whether single-image depth can replace measured depth during the grasp. The internship established the prototype and showed why that last step needs its own validation.
+The next test would compare measured and predicted depth **at the actual grasp point** on new acquisition runs, then log localisation, pickup and placement results across repeated trials. From there, the system could be tested with different recyclable objects, partial occlusion and clutter, where recognising the item and choosing a destination bin become part of the same task.
+
+---
+
+*Based on the FEMTO-ST internship report and original lab figures and footage. This repository contains the public showcase only; project code, datasets and model weights are not included.*
