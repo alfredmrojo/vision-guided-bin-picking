@@ -2,11 +2,11 @@
 
 **Alfred Rojo · FEMTO-ST research internship · 2026**
 
-At FEMTO-ST, I helped build a robot that turns a camera image into a physical grasp. A wrist-mounted camera finds the target and estimates its position and orientation. The controller uses that information to guide the gripper to the object and lift it.
+**How well can a single colour camera estimate the depth a robot needs to grasp an object?** At FEMTO-ST, I worked on this question in the context of robotic sorting for recycling. A depth map can capture the overall shape of a scene, but the practical test is how accurately it places the object where the gripper needs to close.
 
-The prototype was a first step towards sorting recyclables and a testbed for a research question: **could a single colour image provide the depth a robot needs to grasp an object?** We used a whiteboard marker as the test object. RealSense supplied depth for the physical trials and served as the reference for evaluating estimates from a single image.
+We built a wrist-camera picking prototype on a six-axis robot and used a whiteboard marker as the test object. RealSense supplied measured depth for the physical grasps and gave us a reference for evaluating **MoGe2**, which estimates depth from a single RGB image. Across 12 acquisition runs, we collected **4.56 million paired pixel measurements**. A distance-based correction brought median error from **6.85 cm to 5.95 cm**.
 
-[Prototype](#the-prototype) · [Calibration](#camera-to-robot-calibration) · [Object detection](#finding-the-object) · [Depth experiment](#depth-from-one-image) · [Grasp planning](#from-detection-to-motion) · [Results and next steps](#results-and-next-steps)
+[Single-camera depth study](#how-well-did-single-camera-depth-perform) · [Prototype](#the-prototype) · [Calibration](#camera-to-robot-calibration) · [Object detection](#finding-the-object) · [Grasp planning](#from-detection-to-motion) · [Results and next steps](#results-and-next-steps)
 
 ## The prototype
 
@@ -40,9 +40,9 @@ The marker's outline gave the robot two useful cues: a centre to move towards an
 ![YOLOv8 training and validation curves across 50 epochs](media/marker-training-curves.png)
 *YOLOv8 training and validation over 50 epochs. On the marker validation set, segmentation reached approximately **0.95 mask mAP@50**.*
 
-## Depth from one image
+## How well did single-camera depth perform?
 
-The second part of the project asked whether the camera could provide enough geometry without its depth stream. We ran **MoGe2** on RGB images, aligned the RealSense depth to those same images, and compared the two values at matching pixels. Across **12 acquisition runs**, the SQLite database held **4,559,119 paired pixel measurements**. Keeping acquisition settings and sample records separately let us trace errors back to a frame or robot pose and rerun the analysis without repeating the capture.
+To assess whether a colour camera could eventually take over the depth sensor's role, we ran **MoGe2** on RGB images collected with the robot. We aligned the RealSense depth to those images and compared the two values at matching pixels. The SQLite database held **4,559,119 paired pixel measurements**. Keeping acquisition settings and sample records separately let us trace errors back to a frame or robot pose and rerun the analysis without repeating the capture.
 
 ![Colour-coded RealSense depth aligned to the RGB image](media/realsense-depth-map.png)
 *RealSense depth aligned to the colour image so both methods could be compared at matching pixels.*
@@ -58,7 +58,7 @@ MoGe2 captured the broad shape of the scene. To refine its estimates in the arm'
 | Mean absolute error | 15.36 cm | **14.84 cm** |
 | 90th-percentile absolute error | 28.87 cm | **28.54 cm** |
 
-The correction reduced median depth error by **0.90 cm**, from **6.85 cm to 5.95 cm**. That result gives the next experiment a concrete target: check the model's depth estimates at the points where the jaws make contact.
+The correction reduced median error by **0.90 cm**, while the 90th-percentile error stayed close to **29 cm**. For a robot, both figures matter: the median shows the improvement on a typical pixel, and the 90th percentile shows how large an error can be near the upper end. The next step is to test depth at the grasp point itself, where a small patch of the image determines how far the jaws descend.
 
 ## From detection to motion
 
@@ -95,7 +95,7 @@ Partway through testing, the controller stopped receiving telemetry from Joint 5
 
 ## Results and next steps
 
-The lab trial brought the camera mount, calibration, marker segmentation and motion controller together in one result: the arm located and lifted the marker. The depth study established a measured baseline for taking the same workflow towards a single-camera system.
+The physical trial demonstrated the vision-to-grasp workflow with measured RealSense depth. The single-camera study showed how closely RGB-only depth matched that reference on the robot's workspace data and where the correction helped. Together, they give us a working platform and a measured baseline for testing a colour-camera-only pick.
 
 The next steps are to compare measured and predicted depth **at the grasp point**, record pickup and placement results across repeated trials, and extend the pipeline to mixed recyclables. In that setting, the same vision system would help the robot decide both how to grasp an object and which bin to place it in.
 
