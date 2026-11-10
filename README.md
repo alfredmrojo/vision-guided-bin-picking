@@ -1,104 +1,100 @@
 # Vision-Guided Robotic Bin Picking
 
-**Alfred Rojo · FEMTO-ST research internship · 2026**
+**Alfred Rojo · FEMTO-ST research internship · Besançon, France · 2026**
 
-**How well can a single colour camera estimate the depth a robot needs to grasp an object?** At FEMTO-ST, I worked on this question in the context of robotic sorting for recycling. A depth map can capture the overall shape of a scene, but the practical test is how accurately it places the object where the gripper needs to close.
+**Can a single colour image tell a robot how far away its next pick is?** We built a wrist-camera picking system and evaluated single-image depth while the robot was finding, approaching and aligning with objects. At **223 points where the motion planner requested a target distance**, a correction fitted on earlier data brought the average absolute depth error from **9.82 cm to 1.10 cm** against the RealSense reference.
 
-We built a wrist-camera picking prototype on a six-axis robot and used a whiteboard marker as the test object. RealSense supplied measured depth for the physical grasps and gave us a reference for evaluating **MoGe2**, which estimates depth from a single RGB image. Across 12 acquisition runs, we collected **4.56 million paired pixel measurements**. A distance-based correction brought median error from **6.85 cm to 5.95 cm**.
+The project was motivated by the selective sorting of returned diabetes devices for recycling. Whiteboard markers gave us repeatable, pen-shaped test objects for studying how a robot handles elongated items in clutter. The physical trials used measured RealSense depth; the monocular estimates were evaluated alongside it on the same views.
 
-[Single-camera depth study](#how-well-did-single-camera-depth-perform) · [Prototype](#the-prototype) · [Calibration](#camera-to-robot-calibration) · [Object detection](#finding-the-object) · [Grasp planning](#from-detection-to-motion) · [Results and next steps](#results-and-next-steps)
+[The setup](#a-camera-on-the-wrist) · [Depth experiment](#from-one-image-to-a-distance) · [Results](#how-close-did-single-image-depth-get) · [Robot demonstration](#from-target-selection-to-placement)
 
-## The prototype
+<p align="center">
+  <img src="robot-setup.jpeg" width="640" alt="Niryo Ned2 robotic arm with a wrist-mounted RealSense beside the gripper, looking down at a checkerboard on the workbench">
+  <br><em>The wrist-mounted camera moves with the gripper, so the robot can inspect an object again as it approaches.</em>
+</p>
 
-<p align="center"><img src="media/marker-grasp-trial.webp" width="568" alt="Physical Niryo Ned2 trial: the arm approaches a red-capped marker, grips it and lifts it off the table"><br><em>Lab demonstration: the Niryo Ned2 approaches the marker, closes its gripper and lifts the object off the table.</em></p>
+## A camera on the wrist
 
-The **Niryo Ned2** carries an **Intel RealSense D435** beside its parallel gripper. Mounting the camera on the wrist lets the arm look around for a target and then take a closer measurement. A **Jetson Orin** runs camera acquisition and GPU inference, while the Python controller turns the vision output into robot commands. Bringing up CUDA on the Jetson made it practical to test the vision and motion together on the bench.
+The six-axis **Niryo Ned2** carried an **Intel RealSense D435** beside a parallel gripper on a custom 3D-printed PLA bracket. Its colour stream supplied the input for both vision models. Its aligned stereo depth served two purposes: measuring distance for the physical trials and providing a reference against which to evaluate the single-image estimates. An **NVIDIA Jetson Orin** ran acquisition and model inference, while the Python controller used the detections and measured distances to plan motion.
 
-![Niryo Ned2 with a wrist-mounted RealSense over the calibration target](robot-setup.jpeg)
-*The lab setup with the camera beside the gripper and the checkerboard on the work surface.*
-
-| Camera mount in CAD | First bracket installed |
+| Designing the mount | Calibrating the view |
 | :---: | :---: |
-| <img src="media/camera-mount-cad.png" width="350" alt="Fusion 360 model of the wrist-mounted camera bracket"> | <img src="media/wrist-camera.jpeg" width="350" alt="RealSense camera held next to the gripper by a printed bracket"> |
-| The custom PLA bracket was designed in Fusion 360 and 3D-printed. | The first bracket held the camera near the jaws. A later offset aligned the RGB lens more closely with the gripper centreline. |
+| <img src="media/camera-mount-cad.png" width="340" alt="CAD model of the custom camera mounting bracket"> | <img src="media/checkerboard-corners.png" width="340" alt="Detected checkerboard corners overlaid on a wrist-camera calibration image"> |
+| The bracket fixes the camera beside the jaws so their relative position stays constant as the wrist moves. | Images of a fixed checkerboard from different wrist poses connect what the camera sees to where the robot can move. |
 
-## Camera-to-robot calibration
+Camera calibration tells us which direction a pixel points in; **hand–eye calibration** places that direction in the robot's coordinate system. We compared five hand–eye solvers on 12 pose pairs and selected Tsai–Lenz, which had the lowest mean transform-chain consistency residual (24.26 mm). That residual measures agreement across calibration poses, and is a separate source of uncertainty from the depth error reported below.
 
-When the arm moves, the same object appears at a different pixel and from a different angle. The robot therefore needs to know exactly how the camera sits relative to its wrist. We photographed a fixed, printed checkerboard from different arm positions, pairing each image with the corresponding robot pose. OpenCV found the corners and estimated where the board was relative to the camera. Combining those observations with the robot's joint positions gave us the camera-to-wrist transform.
+## From one image to a distance
 
-| Fabricated target | Corner extraction from a wrist-camera image |
-| :---: | :---: |
-| <img src="media/calibration-board.jpeg" width="280" alt="3D-printed black-and-white calibration checkerboard"> | <img src="media/checkerboard-corners.png" width="360" alt="Detected checkerboard corners overlaid in coloured rows"> |
-| Known square spacing gives the images a metric reference. | The detected corners let us estimate the target pose from each view. |
+**YOLOv8n-seg** traces each marker's outline, giving the controller a centre to move towards and a long axis to align the jaws with. We fine-tuned it on a custom marker dataset and obtained approximately **0.95 mAP@0.5** for boxes and masks on its validation subset. **MoGe-2 ViT-L** takes the same colour image and estimates distance at every pixel. The system runs it once per image, then reads the relevant part of that map for each detected marker.
 
-We compared five hand–eye calibration methods on **12 pose pairs**. The selected Tsai method gave a **24.26 mm mean 3D consistency error** when locating the reference point across those poses. Park and Horaud gave similar results.
+![Flow diagram: the RGB image supplies segmentation and single-image depth; RealSense supplies the motion distance and the comparison reference](media/perception-paths.svg)
 
-## Finding the object
+Raw depth shifted with distance and viewpoint as the wrist moved. We fitted an **18-feature ridge regression** on earlier recordings to adjust MoGe-2's estimates using image position, marker size and shape, local depth context and known camera and robot height. RealSense supplied the training reference. Applying the fitted correction takes the RGB-derived measurements and robot geometry as inputs; the neural network weights and the correction coefficients stayed fixed throughout the three later evaluation sessions.
 
-The marker's outline gave the robot two useful cues: a centre to move towards and a long axis to align the jaws. We annotated the outlines in Roboflow, verified the dataset labels and fine-tuned a **YOLOv8 segmentation** model on the Jetson.
+To compare the two depth paths fairly, the logger paired the **same colour image** with aligned RealSense depth, the recorded robot pose and the controller stage. It also recorded when the planner asked for the selected marker's distance. This let us judge the model on the views a working robot actually encountered, including close alignment, where the target often looks different from the initial observation.
 
-![YOLOv8 training and validation curves across 50 epochs](media/marker-training-curves.png)
-*YOLOv8 training and validation over 50 epochs. On the marker validation set, segmentation reached approximately **0.95 mask mAP@50**.*
+## How close did single-image depth get?
 
-## How well did single-camera depth perform?
+For each detected marker, we compared the median depth inside its mask with the RealSense median for the corresponding region. The table reports the **mean absolute difference** across those comparisons, in centimetres. Across three later sessions, the system recorded 505 paired images and 834 marker regions; the main comparison retained 556 regions from 339 images after checks on sensor coverage, timing, pose and grasp phase.
 
-To assess whether a colour camera could eventually take over the depth sensor's role, we ran **MoGe2** on RGB images collected with the robot. We aligned the RealSense depth to those images and compared the two values at matching pixels. The SQLite database held **4,559,119 paired pixel measurements**. Keeping acquisition settings and sample records separately let us trace errors back to a frame or robot pose and rerun the analysis without repeating the capture.
+| Evaluation | Sample | Raw MoGe-2 | With correction |
+| --- | ---: | ---: | ---: |
+| Marker regions passing the evaluation checks | 556 regions | 9.10 cm | **1.04 cm** |
+| Selected targets when the planner requested distance | 223 targets | 9.82 cm | **1.10 cm** |
 
-![Colour-coded RealSense depth aligned to the RGB image](media/realsense-depth-map.png)
-*RealSense depth aligned to the colour image so both methods could be compared at matching pixels.*
+![Measured depth agreement and cumulative absolute error for raw and corrected MoGe-2](media/depth-validation.png)
 
-MoGe2 captured the broad shape of the scene. To refine its estimates in the arm's working range, we grouped predictions by distance and used the **median signed error** to calculate a correction for each group. We tested different smoothing settings and capped the adjustment. Because the groups are defined by the model's **predicted** depth, the correction can run on the model output alone.
+*Final evaluation. The diagonal marks agreement with RealSense. The corrected estimates cluster closer to it, and the steeper green curve shows how many more estimates fall within small error margins.*
 
-![Exploratory close-range plot comparing raw and corrected MoGe2 with RealSense](media/depth-trends.png)
-*Exploratory plot below 1 m. The median lines follow the reference more closely than the means in some ranges, where large outliers pull the averages away. This plot illustrates why we used medians; the table below reports the final selected correction configuration.*
+The main comparison showed an **88.6% reduction** in mean absolute error, with **89.0% of regions within 2 cm**. Resampling whole camera images, so markers in the same image stayed together, gave a 95% confidence interval of **0.94–1.14 cm** for the corrected mean absolute error. Close alignment was a useful stress test: error fell from **13.06 cm to 1.04 cm** across 158 regions observed at that stage.
 
-| Depth error against RealSense | Raw MoGe2 | With correction |
-| --- | ---: | ---: |
-| Median absolute error | 6.85 cm | **5.95 cm** |
-| Mean absolute error | 15.36 cm | **14.84 cm** |
-| 90th-percentile absolute error | 28.87 cm | **28.54 cm** |
+### The part that matters to the gripper
 
-The correction reduced median error by **0.90 cm**, while the 90th-percentile error stayed close to **29 cm**. For a robot, both figures matter: the median shows the improvement on a typical pixel, and the 90th percentile shows how large an error can be near the upper end. The next step is to test depth at the grasp point itself, where a small patch of the image determines how far the jaws descend.
+A marker can sit flat, lean against another object or rest on top of a pile. Its median depth tells the robot roughly where it is. For the last part of a descent, the gripper also needs to know how far the marker protrudes above what surrounds it and where it will first meet the object.
 
-## From detection to motion
+![Height maps of the same marker from RealSense, raw MoGe-2 and corrected MoGe-2](media/marker-height-example.png)
 
-```mermaid
-flowchart TD
-    A["Wrist camera: colour image"] --> B["YOLOv8: object centre and direction"]
-    A --> C["MoGe2: depth from colour alone"]
-    D["RealSense: measured depth"] --> E["Local depth near the object"]
-    D --> F["Offline comparison and correction"]
-    C --> F
-    B --> G["Locate target in robot coordinates"]
-    E --> G
-    H["Wrist calibration and current arm pose"] --> G
-    G --> I["Centre, align and approach"]
-    I --> J["Operator confirms before grasp"]
-```
+*A development example of the marker's relief above its support. Each panel has its own colour scale in centimetres.*
 
-The controller combined the target pixel with the median of nearby valid depth readings. It used the camera calibration and current arm pose to locate the target relative to the robot base, then calculated how far to move the gripper sideways in physical units.
+<p align="center">
+  <img src="media/surface-geometry.png" width="520" alt="Marker-height agreement and nearest-surface error across object-height bands">
+  <br><em>Final evaluation. Corrected height had a mean absolute error of 0.80 cm across 501 eligible regions. In the lower plot, the nearest-surface estimate reached 2.38 cm mean absolute error for objects at least 3 cm above their support.</em>
+</p>
 
-1. **Find and centre.** Sweep the base to find the marker, then move the wrist over it with the gripper level. Separating centring from descent keeps the target in view during alignment.
-2. **Align and approach.** Use the object's long axis to turn the jaws, taking the shorter equivalent rotation. Check whether the object fits the gripper and select the closest reachable top-down orientation before lowering the arm.
-3. **Confirm, grasp and lift.** Stop for operator confirmation near the target before closing the jaws. The controller then lifts and commands the drop motion. The excerpt above shows the approach, grasp and lift portion of a physical trial.
+The corrected median-depth error was below 2.97 cm for roughly 95% of evaluated regions, with a largest observed error of 18.27 cm. MoGe-2 inference took a median of 791 ms. Those two measurements point to practical checks for a future RGB-guided descent: whether a prediction is current enough to use, and whether the uncertainty still leaves enough room for the jaws.
 
-| Live vision view | 3D planning preview |
-| :---: | :---: |
-| <img src="fixed-object-detection.png" width="420" alt="Live interface showing a detected marker, measured depth and estimated target"> | <img src="grasp-preview.png" width="420" alt="3D preview marking the pre-grasp and final grasp positions"> |
-| The live overlay shows the detection, measured depth and estimated grasp target. | The planning preview plots the approach and grasp positions in 3D. |
+## From target selection to placement
 
-## Getting the arm back on the bench
+The controller ranks exposed markers by their measured depth and keeps track of the selected marker as the wrist changes viewpoint. As the arm approaches, each new observation updates both lateral position and wrist rotation. This keeps the gripper centred while bringing its jaws into line with the marker.
 
-Partway through testing, the controller stopped receiving telemetry from Joint 5 while the other joints still reported normally. Swapping connections helped isolate the fault to the wrist actuator. The replacement had different factory communication settings, so we configured it separately with a U2D2 adapter and Dynamixel Wizard, reinstalled it, checked that the controller could see it, and recalibrated its zero position before resuming trials.
+![Final controller schematic showing the wrist-mounted camera and how lateral centring and yaw correction work together](media/wrist-alignment.png)
 
-<p align="center"><img src="media/joint-diagnostics.jpeg" width="600" alt="Niryo Studio diagnostics with missing telemetry for the wrist joint"><br><em>The diagnostic panel showed missing readings for Joint 5 while neighbouring joints continued to report.</em></p>
+*The red point is the detected marker centre; the blue square is the desired image position. The arm moves the point towards the square while rotating the gripper into alignment.*
 
-## Results and next steps
+The arm first moves to a standoff of about **15 cm**, then rechecks the target near **8 cm**. Once the centre is within tolerance, it holds its lateral position and yaw while descending, closes the gripper, lifts the marker, checks that it was acquired and moves it to the drop location.
 
-The physical trial demonstrated the vision-to-grasp workflow with measured RealSense depth. The single-camera study showed how closely RGB-only depth matched that reference on the robot's workspace data and where the correction helped. Together, they give us a working platform and a measured baseline for testing a colour-camera-only pick.
+<p align="center">
+  <a href="media/marker-grasp-trial.webp"><img src="media/marker-grasp-trial.webp" width="568" alt="Silent lab footage of the arm approaching, grasping and lifting a marker"></a>
+  <br><em>Early fixed-marker bench demonstration: approach, grasp and lift with RealSense-guided distance. The final clutter-trial results are reported below.</em>
+</p>
 
-The next steps are to compare measured and predicted depth **at the grasp point**, record pickup and placement results across repeated trials, and extend the pipeline to mixed recyclables. In that setting, the same vision system would help the robot decide both how to grasp an object and which bin to place it in.
+### RealSense-guided physical trials
 
----
+![Physical trial counts and outcome rates with confidence intervals](media/physical-outcomes.png)
 
-*Based on the FEMTO-ST internship report, with original lab figures and footage.*
+*The trial counts show how many attempts reached motion, acquired a marker and completed placement. Outcome rates in the centre panel use the 128 motion trials with a recorded label.*
+
+Of **178 initiated trials**, 49 stopped before the grasp and 129 reached motion. Among the **128 labelled motion trials**, the robot acquired 110 markers and completed **100 pick-and-place cycles (78.1%)**. That was **56.2%** of all initiated trials. Correct target identity was maintained in **98.4%** of labelled motion trials, and median cycle time was **44.4 seconds** for trials reaching motion.
+
+## What this establishes
+
+On this lab setup, single-image depth with a fixed correction reached **about 1.1 cm average error at the point of a picking decision**. That result held on later sessions and connects the model's accuracy to the moment a robot needs a distance. The physical runs provide a baseline for the rest of the workflow: selecting an exposed marker, keeping it in view and completing the pick.
+
+The next test is a controlled comparison of RGB-guided and RealSense-guided picks with the same controller, independently varied piles and wider calibration poses. A clearance check around the nearest visible surface would give the robot a basis for deciding when to descend and when to reobserve. That is the path from a promising single-camera measurement to a dependable picking method.
+
+## Credits and references
+
+Based on the July 2026 internship report, *Deep Neural Network-Based Monocular Perception for Eye-in-Hand Bin Picking: Depth Calibration and Visual Servoing*, by **Sara El Oumami and Alfred Marro Rojo**, supervised by **Prof. Sounkalo Dembele**. Experimental work at FEMTO-ST and Université Marie et Louis Pasteur, Besançon.
+
+Selected references: [MoGe-2 (Wang et al.)](https://arxiv.org/abs/2507.02546) · [Tsai–Lenz hand–eye calibration](https://doi.org/10.1109/70.34770) · [Returpen take-back study (Mallick et al.)](https://doi.org/10.1177/19322968221088329) · [Media notes](media/README.md).
