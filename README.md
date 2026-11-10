@@ -38,10 +38,10 @@ To compare the two depth paths fairly, the logger paired the **same colour image
 
 For each detected marker, we compared the median depth inside its mask with the RealSense median for the corresponding region. The table reports the **mean absolute difference** across those comparisons, in centimetres. Across three later sessions, the system recorded 505 paired images and 834 marker regions; the main comparison retained 556 regions from 339 images after checks on sensor coverage, timing, pose and grasp phase.
 
-| Evaluation | Sample | Raw MoGe-2 | With correction |
-| --- | ---: | ---: | ---: |
-| Marker regions passing the evaluation checks | 556 regions | 9.10 cm | **1.04 cm** |
-| Selected targets when the planner requested distance | 223 targets | 9.82 cm | **1.10 cm** |
+| Evaluation | Error before → after correction |
+| --- | --- |
+| All eligible marker regions (556) | 9.10 → **1.04 cm** |
+| Selected targets at planner requests (223) | 9.82 → **1.10 cm** |
 
 ![Measured depth agreement and cumulative absolute error for raw and corrected MoGe-2](media/depth-validation.png)
 
