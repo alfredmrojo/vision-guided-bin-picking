@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="440" viewBox="0 0 860 440" role="img" aria-labelledby="title desc">
+  <title id="title">Two depth paths, one picking scene</title>
+  <desc id="desc">The wrist RGB image feeds YOLO marker masks and the MoGe-2 depth model. A fixed correction uses image features and robot geometry. Aligned stereo depth supplies physical motion distances and the reference for comparing both monocular estimates at the planner request.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#64748b"/>
+    </marker>
+  </defs>
+  <rect x="1" y="1" width="858" height="438" rx="18" fill="#f8fafc" stroke="#cbd5e1"/>
+  <g font-family="Arial, Helvetica, sans-serif" fill="#152438">
+    <text x="28" y="39" font-size="26" font-weight="700">Two depth paths, one picking scene</text>
+    <text x="28" y="67" font-size="17" fill="#42556c">Matched at the moment the planner requested a target distance.</text>
+    <text x="28" y="108" font-size="16" font-weight="700" fill="#135b54">01 · SINGLE-IMAGE DEPTH</text>
+    <text x="28" y="249" font-size="16" font-weight="700" fill="#254b80">02 · MEASURED DEPTH</text>
+    <g fill="#e5f5ef" stroke="#afd8cb">
+      <rect x="28" y="122" width="205" height="88" rx="10"/>
+      <rect x="271" y="122" width="239" height="88" rx="10"/>
+      <rect x="555" y="122" width="277" height="88" rx="10"/>
+    </g>
+    <g fill="#eaf1fa" stroke="#b7cbe4">
+      <rect x="28" y="263" width="205" height="88" rx="10"/>
+      <rect x="271" y="263" width="239" height="88" rx="10"/>
+    </g>
+    <rect x="555" y="263" width="277" height="88" rx="10" fill="#fef3d9" stroke="#e1c88e"/>
+    <g font-size="18" font-weight="700">
+      <text x="44" y="153">Wrist RGB image</text>
+      <text x="287" y="153">YOLO masks + MoGe-2</text>
+      <text x="571" y="153">Fixed depth correction</text>
+      <text x="44" y="294">Aligned D435 depth</text>
+      <text x="287" y="294">Robot motion</text>
+      <text x="571" y="294">Compare target depths</text>
+    </g>
+    <g font-size="15" fill="#42556c">
+      <text x="44" y="179">One colour frame</text>
+      <text x="287" y="179">Object outlines + raw depth</text>
+      <text x="571" y="179">Image cues and robot geometry</text>
+      <text x="44" y="320">Stereo reference</text>
+      <text x="287" y="320">Uses measured distance</text>
+      <text x="571" y="320">Raw and corrected vs. stereo</text>
+    </g>
+    <g fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)">
+      <path d="M 238 166 H 263"/>
+      <path d="M 516 166 H 547"/>
+      <path d="M 238 307 H 263"/>
+      <path d="M 694 216 V 254"/>
+      <path d="M 131 356 V 375 H 694 V 359"/>
+    </g>
+    <text x="28" y="411" font-size="16" fill="#42556c">RealSense supplied the reference for training and the distances for physical trials.</text>
+  </g>
+</svg>
