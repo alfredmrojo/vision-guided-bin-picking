@@ -1,21 +1,31 @@
 # Vision-Guided Robotic Bin Picking
 
-**FEMTO-ST research internship · 2026 · Two-person project**
+**FEMTO-ST research internship · 2026**
 
-Can a robot find an object with a wrist-mounted camera and work out how to pick it up? We built a prototype for recycling-oriented sorting and tested it with an isolated whiteboard marker as a controlled target.
+**Could a robot pick up an object for recycling using just an ordinary colour image?** A camera can show the robot what’s in front of it, but the robot also needs to know how far away the object is and how to approach it. At FEMTO-ST, I worked on a prototype that connects those steps, with the goal of eventually picking and sorting recyclables without relying on a dedicated depth sensor.
 
 ![Niryo Ned2 robot with a wrist-mounted RealSense camera and a calibration checkerboard](robot-setup.jpeg)
 
-## What I worked on
+*The Niryo Ned2 test setup, with a camera mounted beside the gripper.*
 
-- **Computer vision and AI:** Fine-tuned YOLOv8 to segment markers and used their contours to estimate where the gripper should align.
-- **Robotics:** Calibrated the camera relative to the Niryo Ned2 so the robot could turn image detections into grasp targets in its own coordinate frame.
-- **Python and data:** Worked on the pick-and-place controller and compared MoGe2 single-image depth estimates with RealSense measurements across more than 4.5 million pixel samples.
+## Could one image give us enough depth?
 
-## What it demonstrated
+I compared distances predicted by an AI model from colour images with measurements from the RealSense depth camera. Across **more than 4.5 million pixel-level comparisons**, I looked at where the estimates were reliable and where they drifted. A correction brought the median error down from **6.85 cm to 5.95 cm** in this comparison. That was an improvement, but the larger errors still mattered for a gripper, so we used measured RealSense depth for the physical picking tests.
 
-The marker model reached about **0.95 mask mAP@50 on the validation set**. We tested the fixed-object workflow using RealSense depth for the grasp. The single-camera depth experiment was evaluated separately against that reference.
+## From camera view to robot movement
+
+- **Find the object.** I fine-tuned a vision model to outline a marker and estimate which way it was lying, so the gripper could line up with it.
+- **Give the robot a target.** I calibrated the wrist camera so a point seen in the image could be translated into a position the robot could move to.
+- **Plan the approach.** I worked on the Python controller that brings the gripper above the target, aligns it, and prepares the picking motion. The live view shows what the robot sees; the 3D preview shows the approach and grasp it plans.
+
+![Live camera view showing the detected marker and its estimated position](fixed-object-detection.png)
+
+*Live view: the software locates the test object and displays the information used to plan the grasp.*
 
 ![3D preview showing the robot pose, approach point and planned grasp target](grasp-preview.png)
 
-[See the live detection and grasp estimate](fixed-object-detection.png)
+*3D preview: the robot's approach and grasp positions can be checked before moving the arm.*
+
+## What we tested
+
+We used a **whiteboard marker** as a repeatable test object to check the link between detection, alignment, and picking on the physical robot. It was a first step toward the recycling goal. Picking from a pile of mixed objects and using single-image depth to control the grasp were the next steps.
