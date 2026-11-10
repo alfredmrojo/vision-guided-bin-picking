@@ -2,7 +2,9 @@
 
 **Alfred Rojo · FEMTO-ST research internship · Besançon, France · 2026**
 
-**Can a single colour image tell a robot how far away its next pick is?** We built a wrist-camera picking system and evaluated single-image depth while the robot was finding, approaching and aligning with objects. At **223 points where the motion planner requested a target distance**, a correction fitted on earlier data brought the average absolute depth error from **9.82 cm to 1.10 cm** against the RealSense reference.
+**Can a single colour image tell a robot how far away its next pick is?** A small object close to the camera can look the same size as a larger one farther away. The robot needs that distance to know how far to lower its gripper.
+
+[MoGe-2](https://arxiv.org/abs/2507.02546), introduced in 2025, estimates depth in real-world units from a single image. We ran it on images from the robot’s wrist camera and compared its estimates with RealSense measurements as the robot picked markers. Across **223 requests for a target distance**, a correction fitted on earlier data reduced the mean absolute depth error from **9.82 cm to 1.10 cm**.
 
 The project was motivated by the selective sorting of returned diabetes devices for recycling. Whiteboard markers gave us repeatable, pen-shaped test objects for studying how a robot handles elongated items in clutter. The physical trials used measured RealSense depth; the monocular estimates were evaluated alongside it on the same views.
 
